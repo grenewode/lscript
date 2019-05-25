@@ -4,9 +4,11 @@ mod script;
 fn main() {
     use script::*;
 
-    let expr = dbg!(expr!((|x| {x x}) {} {}));
+    let expr = dbg!(expr!(
+        (x => y => {x, y}) {}
+    ));
 
     let linked = dbg!(expr.link());
 
-    dbg!(linked.eval());
+    println!("{}", linked.eval());
 }

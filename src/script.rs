@@ -1,12 +1,34 @@
 use std::collections::BTreeSet;
+use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Ref(usize);
+
+impl Display for Ref {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "&0x{:x}", self.0)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct LinkedLambda {
     context: Vec<Ref>,
     body: Expr<Ref, Self>,
+}
+
+impl Display for LinkedLambda {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(
+            f,
+            "[{}] => {}",
+            self.context
+                .iter()
+                .map(|r| r.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.body
+        )
+    }
 }
 
 impl LinkedLambda {
@@ -17,6 +39,7 @@ impl LinkedLambda {
             .map(|r| outer_stack[r.0].clone())
             .collect();
         stack.push(argument);
+        dbg!(&stack);
 
         self.body.eval_impl(&stack)
     }
@@ -26,6 +49,12 @@ impl LinkedLambda {
 pub struct UnlinkedLambda {
     argument: String,
     body: Expr<String, Self>,
+}
+
+impl Display for UnlinkedLambda {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{} => {}", self.argument, self.body)
+    }
 }
 
 impl UnlinkedLambda {
@@ -76,8 +105,30 @@ impl UnlinkedLambda {
 
 #[derive(Debug, Clone)]
 pub enum Value<L> {
+    String(String),
     Lambda(Box<L>),
     Tuple(Vec<Value<L>>),
+}
+
+impl<L> Display for Value<L>
+where
+    L: Display,
+{
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Value::String(string) => write!(f, "\"{}\"", string),
+            Value::Lambda(lambda) => lambda.fmt(f),
+            Value::Tuple(fields) => write!(
+                f,
+                "{{ {} }}",
+                fields
+                    .iter()
+                    .map(|field| field.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
 }
 
 impl<L> Value<L> {
@@ -105,6 +156,7 @@ impl Value<UnlinkedLambda> {
                     field.get_unbound_idents(idents);
                 }
             }
+            _ => {}
         }
     }
 
@@ -114,6 +166,7 @@ impl Value<UnlinkedLambda> {
             Value::Tuple(fields) => {
                 Value::Tuple(fields.iter().map(|field| field.link(stack)).collect())
             }
+            Value::String(string) => Value::String(string.clone()),
         }
     }
 }
@@ -167,6 +220,29 @@ pub enum Expr<I, L> {
         argument: Box<Self>,
     },
     Tuple(Vec<Self>),
+}
+
+impl<I, L> Display for Expr<I, L>
+where
+    I: Display,
+    L: Display,
+{
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Expr::Const(value) => value.fmt(f),
+            Expr::Ident(ident) => ident.fmt(f),
+            Expr::Call { target, argument } => write!(f, "({}) {}", target, argument),
+            Expr::Tuple(fields) => write!(
+                f,
+                "{{ {} }}",
+                fields
+                    .iter()
+                    .map(|field| field.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
 }
 
 impl<I, L> Expr<I, L> {
@@ -239,22 +315,28 @@ impl Expr<Ref, LinkedLambda> {
 }
 
 macro_rules! expr {
+    ($e:expr) => {Value::from($e)};
     ($var:ident) => {
        Expr::<String, _>::from(stringify!($var).to_string())
     };
-    (|$var:ident| $body:tt) => {
-        Expr::<String, _>::from(UnlinkedLambda::new(stringify!($var).to_string(), expr!($body)))
+    ($var:ident => $($body:tt)*) => {
+        Expr::<String, _>::from(
+            UnlinkedLambda::new(
+                stringify!($var).to_string(),
+                expr!($($body)*)
+            )
+        )
     };
-    ({ $($field:tt)* }) => {
+    ({ $($field:tt),* }) => {
+        Expr::Tuple(vec![ $(expr!($field)),* ])
+    };
+    ({ $($field:tt,)+ }) => {
         Expr::Tuple(vec![ $(expr!($field)),* ])
     };
     ( ($($item:tt)*) ) => {
         expr!($($item)*)
     };
-    (__impl_call ($target:expr) $argument:tt $($arguments:tt)+) => {
-        expr(__impl_call (Expr::call($target, expr!($argument))) $($arguments:tt)+)
-    };
-    ($target:tt $($arguments:tt)+) => {
-        expr!(__impl_call (expr!($target)) $($arguments:tt)+)
+    ($target:tt $argument:tt) => {
+        Expr::call(expr!($target), expr!($argument))
     };
 }
