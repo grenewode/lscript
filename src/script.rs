@@ -315,17 +315,16 @@ impl Expr<Ref, LinkedLambda> {
 }
 
 macro_rules! expr {
-    ($e:expr) => {Value::from($e)};
-    ($var:ident) => {
-       Expr::<String, _>::from(stringify!($var).to_string())
-    };
-    ($var:ident => $($body:tt)*) => {
+    ($var:ident $($vars:ident)* => $body:tt) => {
         Expr::<String, _>::from(
             UnlinkedLambda::new(
                 stringify!($var).to_string(),
-                expr!($($body)*)
+                expr!($($vars)* $body)
             )
         )
+    };
+    ($var:ident) => {
+       Expr::<String, _>::from(stringify!($var).to_string())
     };
     ({ $($field:tt),* }) => {
         Expr::Tuple(vec![ $(expr!($field)),* ])
@@ -336,7 +335,8 @@ macro_rules! expr {
     ( ($($item:tt)*) ) => {
         expr!($($item)*)
     };
-    ($target:tt $argument:tt) => {
-        Expr::call(expr!($target), expr!($argument))
+    ($target:tt $arg:tt $($args:tt)*) => {
+        Expr::call(expr!($target), expr!($arg $($args)*))
     };
+    ($e:expr) => {Value::from($e)};
 }
