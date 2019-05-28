@@ -264,3 +264,45 @@ macro_rules! number_as_ls {
 }
 
 number_as_ls!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);
+
+#[macro_export]
+macro_rules! typedef(
+    ($(struct $name:ident {
+        $(
+            $field_name:ident : $field_type:ty
+        ),*
+    })) => {$(
+        struct $name {
+            $(
+                pub field_name:$field_type
+            )*
+        }
+
+        impl Storable for $name {
+            fn store_to(&self, target: &mut Mem, start: PtrType) -> Result<PtrType, MemError> {
+                let mut start = start;
+                $(
+                    target.store_and_advance(&mut start, &self.$field_name)?;
+                )*
+                Ok(start)
+            }
+        }
+
+        impl Loadable for $name {
+            fn load_from(m: &Mem, start: PtrType) -> Result<(PtrType, Self), MemError> {
+                let mut start = start;
+                let value = Self { $(
+                    $field_name : m.load_and_advance(&mut start)
+                ),*};
+                Ok((start, value))
+            }
+        }
+    )*}
+);
+
+typedef! {
+    struct HelloWorld {}
+    struct HelloWorld2 {
+        foo: u32
+    }
+}
