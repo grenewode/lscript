@@ -1,31 +1,34 @@
 use std::convert::TryInto;
 
-type INSTRUCTION = u64;
-const INSTRUCTION_SIZE: usize = std::mem::size_of::<INSTRUCTION>();
+use crate::mem::*;
+
+type Instruction = u64;
 
 pub struct VM {
-    memory: Vec<u8>,
-    ip: u32,
-    stackip: u32,
+    memory: MemBuf,
+    ip_ptr: u32,
+    stack_ptr: u32,
 }
 
 impl VM {
-    fn current_instruction(&mut self, len: usize) -> INSTRUCTION {
-        let ip = self.ip as usize;
-        self.ip += 1;
-
-        INSTRUCTION::from_le_bytes(
-            self.memory
-                .get(ip..(ip + INSTRUCTION_SIZE))
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        )
+    fn pop_instruction(&mut self, len: usize) -> Instruction {
+        self.memory.load_and_advance(&mut self.ip_ptr).unwrap()
     }
 
-    fn push(&mut self, value: u8) {
-        self.memory[self.stackip as usize] = value;
-        self.stackip += 1;
+    fn pop<T>(&mut self) -> T
+    where
+        T: Loadable,
+    {
+        self.memory.load_and_advance(&mut self.stack_ptr).unwrap()
+    }
+
+    fn push<T>(&mut self, value: &T)
+    where
+        T: Storable,
+    {
+        self.memory
+            .store_and_advance(&mut self.stack_ptr, value)
+            .unwrap()
     }
 
     pub fn exec(&mut self) {

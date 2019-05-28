@@ -28,6 +28,7 @@ impl<'a> From<&'a mut [Word]> for MemBuf {
     }
 }
 
+#[derive(Debug)]
 pub enum MemError {
     OutOfMemory,
 }
@@ -145,15 +146,38 @@ pub trait MemLike: AsRef<Mem> + AsMut<Mem> {
         T::load_from(self.as_ref(), start)
     }
 
+    fn load_and_advance<T>(&self, start: &mut PtrType) -> Result<T, MemError>
+    where
+        T: Loadable,
+    {
+        let (end, value) = T::load_from(self.as_ref(), *start)?;
+        *start = end;
+        Ok(value)
+    }
+
     fn store<T>(&mut self, start: PtrType, value: &T) -> Result<PtrType, MemError>
     where
         T: Storable,
     {
         value.store_to(self.as_mut(), start)
     }
+
+    fn store_and_advance<T>(&mut self, start: &mut PtrType, value: &T) -> Result<(), MemError>
+    where
+        T: Storable,
+    {
+        *start = self.store(*start, value)?;
+        Ok(())
+    }
 }
 
 impl MemLike for Mem {
+    fn size(&self) -> SizeType {
+        self.0.len() as SizeType
+    }
+}
+
+impl MemLike for MemBuf {
     fn size(&self) -> SizeType {
         self.0.len() as SizeType
     }
@@ -222,18 +246,21 @@ array_as_ls!(
     26, 27, 28, 29, 30, 31, 32
 );
 
-macro_rules! unumber_as_ls {
-    ($($number:ty),*) => {{
+macro_rules! number_as_ls {
+    ($($number:ty),*) => {$(
         impl Storable for $number {
-            fn store(&mut self, start: PtrType, m: &mut impl MemLike) -> Result<PtrType, MemError> {
-                self.to_le_bytes().store(start, m)
+            fn store_to(&self, dest: &mut Mem, start: PtrType) -> Result<PtrType, MemError> {
+                self.to_le_bytes().store_to(dest, start)
             }
         }
 
         impl Loadable for $number {
-            fn load(start: PtrType, m: &impl MemLike) -> Result<PtrType, MemError> {
-                self.from_le_bytes().store(start, m)
+            fn load_from(src: &Mem, start: PtrType) -> Result<(PtrType, Self), MemError> {
+                <[u8; ::std::mem::size_of::<$number>()]>::load_from(src, start)
+                .map(|(end, bytes)| (end, <$number>::from_le_bytes(bytes)))
             }
         }
-    }};
+    )*};
 }
+
+number_as_ls!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);
