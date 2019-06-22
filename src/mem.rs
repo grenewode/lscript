@@ -267,14 +267,68 @@ number_as_ls!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);
 
 #[macro_export]
 macro_rules! typedef(
-    ($(struct $name:ident {
+    (enum $name:ident {
+        $(
+            $variant_name:ident ($variant_value:ty),
+        )*
+    }) => { typedef!(enum $name { $($variant_name($variant_value)),* }); };
+    (enum $name:ident {
+        $(
+            $variant_name:ident ($variant_value:ty)
+        ),*
+    }) => {
+        enum $name {
+            $(
+                $variant_name($variant_value)
+            ),*
+        }
+
+        impl Storable for $name {
+            fn store_to(&self, target: &mut Mem, start: PtrType) -> Result<PtrType, MemError> {
+                let mut start = start;
+                let mut idx = 0u8;
+                $(
+                    if let $name::$variant_name(value) = self {
+                        target.store_and_advance(&mut start, &idx)?;
+                        target.store_and_advance(&mut start, value)?;
+
+                        return Ok(start);
+                    }
+
+                    idx += 1;
+                )*
+
+                unreachable!("we should have hit one of the variants by now");
+            }
+        }
+
+        impl Loadable for $name {
+            fn load_from(m: &Mem, start: PtrType) -> Result<(PtrType, Self), MemError> {
+                let mut start = start;
+                let mut idx = 0u8;
+                let variant: u8 = m.load_and_advance(&mut start)?;
+                $(
+                    if idx == variant {
+                        let value = m.load_and_advance(&mut start)
+                            .map($name::$variant_name)?;
+                        return Ok((start, value));
+                    }
+                    idx += 1;
+                )*
+
+                unreachable!("we should have hit one of the variants by now");
+            }
+        }
+    };
+
+    (struct $name:ident {
         $(
             $field_name:ident : $field_type:ty
         ),*
-    })) => {$(
+    }) => {
         struct $name {
             $(
-                pub field_name:$field_type
+                pub $field_name:$field_type
             )*
         }
 
@@ -292,17 +346,10 @@ macro_rules! typedef(
             fn load_from(m: &Mem, start: PtrType) -> Result<(PtrType, Self), MemError> {
                 let mut start = start;
                 let value = Self { $(
-                    $field_name : m.load_and_advance(&mut start)
+                    $field_name : m.load_and_advance(&mut start)?
                 ),*};
                 Ok((start, value))
             }
         }
-    )*}
-);
-
-typedef! {
-    struct HelloWorld {}
-    struct HelloWorld2 {
-        foo: u32
     }
-}
+);
